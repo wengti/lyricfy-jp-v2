@@ -1,0 +1,24 @@
+# Copy to config.local.yml (gitignored) and fill in real values:
+#   cp config.example.yml config.local.yml
+# The server reads ./config.local.yml by default; set CONFIG_PATH to use another file.
+
+server:
+  port: "8080" # Cloud Run's PORT environment variable overrides this
+
+frontend:
+  # Shared key the frontend's server sends in the X-Frontend-Key header.
+  # The frontend must be configured with the same value.
+  # Generate with: openssl rand -base64 32
+  api_key: "replace-with-at-least-32-random-characters"
+
+session:
+  # Signs session tokens. Changing it logs everyone out.
+  # Generate with: openssl rand -base64 32
+  secret: "replace-with-at-least-32-random-characters"
+  ttl: 720h # how long a login lasts (30 days)
+
+user:
+  email: "example@hotmail.com"
+  # bcrypt hash of the password, never the password itself.
+  # Generate with: go run ./cmd/hashpassword
+  password_hash: "$2a$10$replace.with.output.of.hashpassword"

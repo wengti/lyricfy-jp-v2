@@ -1,0 +1,22 @@
+# Live reload for local development: `go tool air` (run from backend/).
+# Only settings that differ from Air's defaults are listed.
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/server ./cmd/server"
+  entrypoint = ["./tmp/server"]
+  # Restart on Go changes and on config.local.yml edits
+  include_ext = ["go", "yml"]
+  exclude_dir = ["tmp", "vendor", "testdata"]
+  exclude_regex = ["_test.go"]
+  # Let the server shut down gracefully before it's replaced (not supported on Windows)
+  send_interrupt = true
+  kill_delay = "1s"
+
+  [build.windows]
+    cmd = "go build -o ./tmp/server.exe ./cmd/server"
+    entrypoint = ["tmp\\server.exe"]
+
+[misc]
+  clean_on_exit = true
