@@ -72,8 +72,9 @@ go.work.sum
 # Secrets & local config
 # ---------------------------------------------------------------------------
 
-# env files
+# env files (the example is committed)
 .env*
+!.env.example
 
 # Local app config holds credentials; only the example is committed
 config.local.yml
@@ -88,3 +89,5 @@ config.local.yml
 .DS_Store
 # .idea/
 # .vscode/
+
+todo.md

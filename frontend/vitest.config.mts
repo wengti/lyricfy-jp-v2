@@ -12,5 +12,9 @@ export default defineConfig({
 		// with a `// @vitest-environment node` comment at the top of the file.
 		environment: "jsdom",
 		setupFiles: ["./vitest.setup.ts"],
+		// Reset recorded mock calls, stubbed env vars and stubbed globals (e.g. fetch) between tests
+		clearMocks: true,
+		unstubEnvs: true,
+		unstubGlobals: true,
 	},
 });
