@@ -34,6 +34,7 @@ export default function Navbar() {
 								key={href}
 								href={href}
 								title={label}
+								aria-current={active ? "page" : undefined}
 								className={`flex items-center gap-1.5 rounded-md px-1.5 py-2 text-sm font-medium transition-colors sm:px-3 ${
 									active
 										? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300"
