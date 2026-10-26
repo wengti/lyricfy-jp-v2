@@ -1,0 +1,9 @@
+# Store and check out text files with LF line endings, regardless of each machine's
+# core.autocrlf setting. Matches .editorconfig (end_of_line = lf).
+* text=auto eol=lf
+
+# Binary files: never touch line endings
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary

@@ -1,32 +1,34 @@
-# NextJS
+# Patterns are unanchored (no leading "/") so they apply inside frontend/ and api/ as well.
+
+# ---------------------------------------------------------------------------
+# Next.js (frontend/)
+# ---------------------------------------------------------------------------
 
 # dependencies
-/node_modules
-/.pnp
-.pnp.js
+node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
 
 # testing
-/coverage
+coverage/
 
 # next.js
-/.next/
-/out/
+.next/
+out/
 
 # production
-/build
-
-# misc
-.DS_Store
-*.pem
+build/
 
 # debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-
-# local env files
-.env*.local
-.env
+.pnpm-debug.log*
 
 # vercel
 .vercel
@@ -35,9 +37,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# Go Lang
+# ---------------------------------------------------------------------------
+# Go (api/)
+# ---------------------------------------------------------------------------
 
-#
 # Binaries for programs and plugins
 *.exe
 *.exe~
@@ -62,9 +65,24 @@ profile.cov
 go.work
 go.work.sum
 
-# env file
-.env
+# ---------------------------------------------------------------------------
+# Secrets & local config
+# ---------------------------------------------------------------------------
 
-# Editor/IDE
+# env files
+.env*
+
+# Real app config holds credentials; only the example is committed
+config.yml
+!config.example.yml
+
+# keys / certificates
+*.pem
+
+# ---------------------------------------------------------------------------
+# OS / editor
+# ---------------------------------------------------------------------------
+
+.DS_Store
 # .idea/
 # .vscode/
