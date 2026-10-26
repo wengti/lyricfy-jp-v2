@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import LoginForm from "./LoginForm";
 import { login, type LoginState } from "@/app/actions/auth";
 
-// Use the real login action, wrapped in a spy so one test can make it hang
-vi.mock("@/app/actions/auth", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("@/app/actions/auth")>();
-	return { ...actual, login: vi.fn(actual.login) };
-});
+// The real action calls the backend; the form only needs something that returns a LoginState.
+// Each test decides what the action answers.
+vi.mock("@/app/actions/auth", () => ({
+	login: vi.fn(async (): Promise<LoginState> => ({ error: null })),
+}));
 
 async function fillAndSubmit(email: string, password: string) {
 	const user = userEvent.setup();
@@ -32,13 +32,12 @@ describe("LoginForm", () => {
 	});
 
 	it("shows the error returned by the login action", async () => {
+		vi.mocked(login).mockResolvedValueOnce({ error: "Invalid email or password." });
 		render(<LoginForm />);
 
 		await fillAndSubmit("me@example.com", "secret");
 
-		expect(await screen.findByRole("alert")).toHaveTextContent(
-			"Login isn't connected to the backend yet.",
-		);
+		expect(await screen.findByRole("alert")).toHaveTextContent("Invalid email or password.");
 	});
 
 	it("sends the typed email and password to the login action", async () => {
@@ -46,8 +45,9 @@ describe("LoginForm", () => {
 
 		await fillAndSubmit("me@example.com", "secret");
 
-		await screen.findByRole("alert");
-		const formData = vi.mocked(login).mock.lastCall?.[1] as FormData;
+		// Wait for what this test is about: the action being called
+		await waitFor(() => expect(login).toHaveBeenCalledTimes(1));
+		const formData = vi.mocked(login).mock.calls[0][1];
 		expect(formData.get("email")).toBe("me@example.com");
 		expect(formData.get("password")).toBe("secret");
 	});

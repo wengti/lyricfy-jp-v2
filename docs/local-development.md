@@ -1,18 +1,7 @@
 # Running Lyricfy JP v2 locally
 
-## Frontend
-
-```bash
-cd frontend
-npm run dev
-```
-
-### Tests
-
-```bash
-cd frontend
-npm test             # run once
-```
+The frontend talks to the backend, so run both: the backend in one terminal, the frontend in another.
+Then open http://localhost:3000 and log in with the email and password from `backend/config.local.yml`.
 
 ## Backend
 
@@ -39,4 +28,28 @@ Air is pinned in `go.mod`, so there's nothing to install. Without live reload: `
 ```bash
 cd backend
 go test ./...
+```
+
+## Frontend
+
+First time only: create `frontend/.env.local` (gitignored) from the example. `FRONTEND_API_KEY` must
+be the same value as `frontend.api_key` in `backend/config.local.yml`.
+
+```bash
+cd frontend
+cp .env.example .env.local
+```
+
+Run it (http://localhost:3000):
+
+```bash
+cd frontend
+npm run dev
+```
+
+### Tests
+
+```bash
+cd frontend
+npm test             # run once
 ```

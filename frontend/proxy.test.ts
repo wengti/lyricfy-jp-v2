@@ -5,7 +5,7 @@ import { NextRequest } from "next/server";
 // under its pre-rename name.
 import { getRedirectUrl, unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
 import { config, proxy } from "./proxy";
-import { SESSION_COOKIE } from "./lib/session";
+import { SESSION_COOKIE } from "@/lib/session/cookie";
 
 const BASE = "http://localhost:3000";
 

@@ -1,10 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { SESSION_COOKIE } from "@/lib/session";
+import { SESSION_COOKIE } from "@/lib/session/cookie";
 
 const PROTECTED = ["/dictionary"];
 
 // Optimistic redirects based on the session cookie's presence only.
-// The real check happens server-side in lib/auth.ts (requireSession).
+// The real check happens server-side in lib/auth/require-session.ts (requireSession).
 export function proxy(request: NextRequest) {
 	const { pathname } = request.nextUrl; // where the visitor is going to, i.e. /dictionary
 	const hasSession = request.cookies.has(SESSION_COOKIE); // whether the request carries the cookies
