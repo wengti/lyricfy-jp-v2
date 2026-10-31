@@ -1,0 +1,16 @@
+# Keep the build context small and secrets out of the image.
+
+# Local config holds credentials; production config is supplied at runtime
+config.local.yml
+config.example.yml
+
+# Air live-reload output and local dev tooling
+tmp/
+.air.toml
+
+# Tests aren't needed in the image (CI runs them separately)
+**/*_test.go
+**/testdata/
+
+Dockerfile
+.dockerignore

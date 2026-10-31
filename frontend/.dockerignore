@@ -1,0 +1,15 @@
+# Keep the build context small and secrets out of the image.
+
+# Installed and built inside the image
+node_modules/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+
+# Env files hold the backend key; production values are supplied at runtime
+.env*
+
+Dockerfile
+.dockerignore
