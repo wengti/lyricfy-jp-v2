@@ -1,5 +1,5 @@
 # The Go API on Cloud Run. Private: only the frontend's service account may call it
-# (granted in ../frontend/main.tf). Its service account and config access come from bootstrap/.
+# (granted in ../frontend/main.tf). Its service account and config access come from ../identities.tf.
 
 resource "google_cloud_run_v2_service" "backend" {
   name     = "lyricfy-backend"

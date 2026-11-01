@@ -9,7 +9,7 @@ variable "image" {
 }
 
 variable "service_account" {
-  description = "Email of the service account the service runs as (created by bootstrap/)."
+  description = "Email of the service account the service runs as (created in ../identities.tf)."
   type        = string
 }
 

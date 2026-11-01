@@ -1,5 +1,5 @@
 # The Next.js app on Cloud Run. Public, and the only caller allowed to reach the backend.
-# Its service account and secret access come from bootstrap/.
+# Its service account and secret access come from ../identities.tf.
 
 # The backend's only invoker
 resource "google_cloud_run_v2_service_iam_member" "backend_invoker" {

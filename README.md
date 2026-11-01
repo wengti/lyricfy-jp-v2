@@ -141,6 +141,11 @@ gcloud config set project <project-id>
 gcloud auth application-default set-quota-project <project-id>
 ```
 
+The last two are machine-wide defaults, not tied to this repo. If you've since worked on another
+GCP project, run them again with this project's ID before using `gcloud` or applying bootstrap
+here; otherwise commands go to the wrong project, and Cloud Billing calls can fail with a quota
+project error. (The pipeline doesn't use your machine's settings.)
+
 #### 1. Apply bootstrap
 
 ```bash
