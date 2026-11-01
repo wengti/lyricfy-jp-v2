@@ -26,8 +26,9 @@ resource "google_iam_workload_identity_pool_provider" "github" {
   }
 
   # GitHub's subject claim names the repository and either the branch or the environment:
-  #   repo:OWNER/NAME:ref:refs/heads/main      a job on main
-  #   repo:OWNER/NAME:environment:production   a job in the production environment
+  #   <prefix>:ref:refs/heads/main      a job on main
+  #   <prefix>:environment:production   a job in the production environment
+  # (<prefix> is var.github_subject_prefix)
   attribute_mapping = {
     "google.subject"       = "assertion.sub"
     "attribute.repository" = "assertion.repository"
@@ -43,8 +44,8 @@ locals {
   github_principal = "principal://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/subject"
   # Which GitHub jobs may act as each service account (see the subject formats above)
   github_subjects = {
-    main       = "${local.github_principal}/repo:${var.github_repository}:ref:refs/heads/main"
-    production = "${local.github_principal}/repo:${var.github_repository}:environment:production"
+    main       = "${local.github_principal}/${var.github_subject_prefix}:ref:refs/heads/main"
+    production = "${local.github_principal}/${var.github_subject_prefix}:environment:production"
   }
 }
 

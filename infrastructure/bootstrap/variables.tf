@@ -25,3 +25,9 @@ variable "github_repository" {
   type        = string
   default     = "wengti/lyricfy-jp-v2"
 }
+
+variable "github_subject_prefix" {
+  description = "Start of the subject claim in the repository's GitHub OIDC tokens. This repository uses GitHub's immutable format, repo:OWNER@OWNER_ID/NAME@REPO_ID, so a deleted and recreated repository with the same name can't deploy. Check it with: curl https://api.github.com/repos/OWNER/NAME/actions/oidc/customization/sub (sub_claim_prefix)."
+  type        = string
+  default     = "repo:wengti@45443501/lyricfy-jp-v2@1433809522"
+}
