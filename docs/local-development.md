@@ -57,7 +57,8 @@ npm test             # run once
 ## Production images (Docker)
 
 Each app has a `Dockerfile` that builds the image deployed to Cloud Run. Neither image contains
-config or secrets: the backend reads its config file from `CONFIG_PATH`, and the frontend reads
+config or secrets: the backend reads its config file from `CONFIG_PATH` (on Cloud Run, from
+Parameter Manager instead), and the frontend reads
 `API_URL` and `FRONTEND_API_KEY` from the environment at runtime.
 
 To check the images locally, run both containers on one Docker network (run from the repo root,

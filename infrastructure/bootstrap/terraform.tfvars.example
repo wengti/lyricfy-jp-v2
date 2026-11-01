@@ -1,0 +1,7 @@
+# Copy to terraform.tfvars (gitignored) and fill in.
+project_id      = "your-project-id"
+billing_account = "012345-6789AB-CDEF01" # gcloud billing accounts list
+
+# Defaults, shown for reference
+# region                = "asia-southeast1" # registry and secrets; must match GCP_REGION in GitHub
+# state_bucket_location = "us-central1"     # Cloud Storage's free tier is US regions only

@@ -69,6 +69,27 @@ go.work
 go.work.sum
 
 # ---------------------------------------------------------------------------
+# Terraform (infrastructure/)
+# ---------------------------------------------------------------------------
+
+# Provider downloads (.terraform.lock.hcl IS committed: it pins provider versions)
+.terraform/
+
+# State can hold secrets; remote state lives in the GCS bucket, bootstrap/ keeps it locally
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+crash.log
+crash.*.log
+# Saved plans (the pipeline passes its plan between jobs as an artifact)
+tfplan
+*.tfplan
+
+# Variable files hold project and billing IDs; only the examples are committed
+*.tfvars
+!*.tfvars.example
+
+# ---------------------------------------------------------------------------
 # Secrets & local config
 # ---------------------------------------------------------------------------
 

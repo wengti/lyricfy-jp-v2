@@ -5,7 +5,8 @@
 #                           -v "$(pwd)/config.local.yml:/config/config.yml:ro" \
 #                           -e CONFIG_PATH=/config/config.yml lyricfy-api
 #
-# No config or secrets are baked in: the config file is supplied at runtime via CONFIG_PATH.
+# No config or secrets are baked in. On Cloud Run the config comes from Parameter Manager
+# (CONFIG_PARAMETER); locally, from the file at CONFIG_PATH.
 
 # ---- Build ----
 FROM golang:1.26 AS build

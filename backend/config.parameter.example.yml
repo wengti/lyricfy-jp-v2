@@ -1,0 +1,21 @@
+# What to paste into a new version of the backend-config parameter on Google Cloud
+# (console: Secret Manager → Parameter Manager → backend-config → Versions → New version).
+# Replace PROJECT_ID. The backend loads the newest version when it starts.
+#
+# Same shape as config.example.yml, except secret values are references to Secret Manager
+# secrets, filled in when the backend reads the config. Keep each reference in single quotes so
+# the filled-in value is still valid YAML. "versions/latest" means rotating a secret (adding a
+# version in Secret Manager) needs no edit here; if rendering ever rejects it, use the version
+# number instead (versions/1, versions/2, ...).
+# server.port is left out: Cloud Run sets PORT.
+
+frontend:
+  api_key: '__REF__("//secretmanager.googleapis.com/projects/PROJECT_ID/secrets/frontend-api-key/versions/latest")'
+
+session:
+  secret: '__REF__("//secretmanager.googleapis.com/projects/PROJECT_ID/secrets/session-secret/versions/latest")'
+  ttl: 720h # how long a login lasts (30 days)
+
+user:
+  email: "example@hotmail.com"
+  password_hash: '__REF__("//secretmanager.googleapis.com/projects/PROJECT_ID/secrets/user-password-hash/versions/latest")'

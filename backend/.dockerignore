@@ -3,6 +3,7 @@
 # Local config holds credentials; production config is supplied at runtime
 config.local.yml
 config.example.yml
+config.parameter.example.yml
 
 # Air live-reload output and local dev tooling
 tmp/

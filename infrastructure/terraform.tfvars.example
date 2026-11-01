@@ -1,0 +1,7 @@
+# The pipeline supplies these; this file is only for running plan locally.
+# Copy to terraform.tfvars (gitignored) and fill in. Use the images currently deployed (see the
+# Cloud Run console) unless you mean to change them.
+project_id      = "your-project-id"
+billing_account = "012345-6789AB-CDEF01"
+backend_image   = "asia-southeast1-docker.pkg.dev/your-project-id/lyricfy/backend:<commit-sha>"
+frontend_image  = "asia-southeast1-docker.pkg.dev/your-project-id/lyricfy/frontend:<commit-sha>"

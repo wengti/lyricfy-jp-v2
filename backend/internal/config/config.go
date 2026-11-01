@@ -1,8 +1,10 @@
-// Package config loads the application config from a local YAML file.
+// Package config loads the application config: from a Parameter Manager parameter on Google
+// Cloud, or from a local YAML file in development. Both hold the same YAML.
 package config
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -56,24 +58,42 @@ func Path() string {
 	return defaultPath
 }
 
-// LoadFromEnv loads the config file found by Path.
-func LoadFromEnv() (*Config, error) {
+// LoadFromEnv loads the config from the Parameter Manager parameter named by the
+// CONFIG_PARAMETER environment variable (set on Cloud Run), or else from the file found by Path.
+func LoadFromEnv(ctx context.Context) (*Config, error) {
+	if parameter := os.Getenv("CONFIG_PARAMETER"); parameter != "" {
+		return LoadParameter(ctx, parameter)
+	}
 	return Load(Path())
 }
 
-// Load reads the config file at path, applies defaults and validates it.
-// The PORT environment variable (set by Cloud Run) overrides server.port.
+// LoadParameter loads the newest version of a Parameter Manager parameter, given as
+// projects/PROJECT/locations/global/parameters/NAME, with its secret references resolved.
+func LoadParameter(ctx context.Context, parameter string) (*Config, error) {
+	data, err := renderLatest(ctx, parameter)
+	if err != nil {
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+	return parse(data, parameter)
+}
+
+// Load reads the config file at path.
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
+	return parse(data, path)
+}
 
+// parse decodes YAML config, applies defaults and validates it. source names it in errors.
+// The PORT environment variable (set by Cloud Run) overrides server.port.
+func parse(data []byte, source string) (*Config, error) {
 	var cfg Config
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true) // fail on typos such as "pasword_hash"
 	if err := dec.Decode(&cfg); err != nil {
-		return nil, fmt.Errorf("parse config %s: %w", path, err)
+		return nil, fmt.Errorf("parse config %s: %w", source, err)
 	}
 
 	cfg.applyDefaults()
@@ -82,7 +102,7 @@ func Load(path string) (*Config, error) {
 	}
 
 	if err := cfg.validate(); err != nil {
-		return nil, fmt.Errorf("invalid config %s: %w", path, err)
+		return nil, fmt.Errorf("invalid config %s: %w", source, err)
 	}
 	return &cfg, nil
 }
