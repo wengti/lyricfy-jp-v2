@@ -1,6 +1,8 @@
 package config
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,15 +64,69 @@ func TestPath(t *testing.T) {
 	})
 }
 
+// stubRender replaces the Parameter Manager call for one test.
+func stubRender(t *testing.T, fn func(ctx context.Context, parameter string) ([]byte, error)) {
+	t.Helper()
+	orig := renderLatest
+	renderLatest = fn
+	t.Cleanup(func() { renderLatest = orig })
+}
+
 func TestLoadFromEnv(t *testing.T) {
-	t.Setenv("PORT", "")
-	t.Setenv("CONFIG_PATH", writeConfig(t, validYAML()))
-	cfg, err := LoadFromEnv()
-	if err != nil {
-		t.Fatalf("LoadFromEnv: %v", err)
+	t.Run("reads the file when CONFIG_PARAMETER is unset", func(t *testing.T) {
+		t.Setenv("PORT", "")
+		t.Setenv("CONFIG_PARAMETER", "")
+		t.Setenv("CONFIG_PATH", writeConfig(t, validYAML()))
+		cfg, err := LoadFromEnv(t.Context())
+		if err != nil {
+			t.Fatalf("LoadFromEnv: %v", err)
+		}
+		if cfg.User.Email != "me@example.com" {
+			t.Errorf("email = %q, want the file's value", cfg.User.Email)
+		}
+	})
+
+	t.Run("reads the parameter when CONFIG_PARAMETER is set", func(t *testing.T) {
+		const parameter = "projects/p/locations/global/parameters/backend-config"
+		t.Setenv("PORT", "")
+		t.Setenv("CONFIG_PARAMETER", parameter)
+		t.Setenv("CONFIG_PATH", filepath.Join(t.TempDir(), "nope.yml")) // must not be read
+		var got string
+		stubRender(t, func(_ context.Context, p string) ([]byte, error) {
+			got = p
+			return []byte(validYAML()), nil
+		})
+
+		cfg, err := LoadFromEnv(t.Context())
+		if err != nil {
+			t.Fatalf("LoadFromEnv: %v", err)
+		}
+		if got != parameter {
+			t.Errorf("rendered %q, want %q", got, parameter)
+		}
+		if cfg.User.Email != "me@example.com" {
+			t.Errorf("email = %q, want the parameter's value", cfg.User.Email)
+		}
+	})
+}
+
+func TestLoadParameter_RenderError(t *testing.T) {
+	stubRender(t, func(context.Context, string) ([]byte, error) {
+		return nil, errors.New("permission denied")
+	})
+	_, err := LoadParameter(t.Context(), "projects/p/locations/global/parameters/backend-config")
+	if err == nil || !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("expected the render error, got %v", err)
 	}
-	if cfg.User.Email != "me@example.com" {
-		t.Errorf("email = %q, want the file's value", cfg.User.Email)
+}
+
+func TestLoadParameter_Validates(t *testing.T) {
+	stubRender(t, func(context.Context, string) ([]byte, error) {
+		return []byte(strings.Replace(validYAML(), `email: "me@example.com"`, `email: ""`, 1)), nil
+	})
+	_, err := LoadParameter(t.Context(), "projects/p/locations/global/parameters/backend-config")
+	if err == nil || !strings.Contains(err.Error(), "user.email") {
+		t.Fatalf("expected a validation error naming user.email, got %v", err)
 	}
 }
 

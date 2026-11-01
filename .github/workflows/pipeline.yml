@@ -1,0 +1,260 @@
+# The one pipeline for the whole repo.
+#
+#   test (backend, frontend, infrastructure in parallel)
+#     -> build images (backend, frontend in parallel)
+#     -> terraform plan -> manual approval -> terraform apply
+#
+# Pull requests stop after the image builds, without cloud access. Pushes to main (merges) push
+# the images and deploy them, together with any infrastructure change, through Terraform.
+name: Pipeline
+
+on:
+  pull_request:
+    paths-ignore: ["**.md", "docs/**"]
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "docs/**"]
+  # Re-run by hand from the Actions tab, e.g. the first deploy after bootstrap
+  workflow_dispatch:
+
+# One run per branch at a time. On main a newer merge waits for the current run (including
+# while it awaits approval) instead of cancelling it; if several queue up, only the newest is
+# kept, since it contains the others. Superseded pull request runs are cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+# GitHub repository variables, set once after bootstrap (see the root README.md)
+env:
+  GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  GCP_REGION: ${{ vars.GCP_REGION }}
+  IMAGE_REPOSITORY: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/lyricfy
+  # One service account per stage, created by bootstrap/ci.tf. Apply is Owner, and Google only
+  # lets jobs in the production environment (after approval) use it.
+  BUILD_SERVICE_ACCOUNT: github-build@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+  PLAN_SERVICE_ACCOUNT: github-plan@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+  APPLY_SERVICE_ACCOUNT: github-apply@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+  # Only runs on main touch the cloud (Workload Identity Federation enforces this too)
+  DEPLOY: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+  TERRAFORM_VERSION: "1.17.1"
+
+jobs:
+  test:
+    name: Test (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true # one failure cancels the others
+      matrix:
+        app: [backend, frontend, infrastructure]
+    defaults:
+      run:
+        working-directory: ${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # ---- backend ----
+      - if: matrix.app == 'backend'
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - if: matrix.app == 'backend'
+        name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then echo "Run gofmt on:"; echo "$unformatted"; exit 1; fi
+
+      - if: matrix.app == 'backend'
+        run: go vet ./...
+
+      - if: matrix.app == 'backend'
+        run: go test -race ./...
+
+      # ---- frontend ----
+      - if: matrix.app == 'frontend'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24 # same major as the Docker image
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - if: matrix.app == 'frontend'
+        run: npm ci
+
+      - if: matrix.app == 'frontend'
+        run: npm run lint
+
+      # Type errors are caught by next build in the image build
+      - if: matrix.app == 'frontend'
+        run: npm test
+
+      # ---- infrastructure ----
+      - if: matrix.app == 'infrastructure'
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - if: matrix.app == 'infrastructure'
+        run: terraform fmt -check -recursive
+
+      - if: matrix.app == 'infrastructure'
+        name: Validate
+        run: |
+          for dir in . bootstrap; do
+            terraform -chdir="$dir" init -backend=false -input=false
+            terraform -chdir="$dir" validate
+          done
+
+  build:
+    name: Build image (${{ matrix.app }})
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true # one failure cancels the others
+      matrix:
+        app: [backend, frontend]
+    permissions:
+      contents: read
+      id-token: write # lets google-github-actions/auth request a GitHub OIDC token
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        if: env.DEPLOY == 'true'
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.BUILD_SERVICE_ACCOUNT }}
+          token_format: access_token
+
+      - name: Log in to Artifact Registry
+        if: env.DEPLOY == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.GCP_REGION }}-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      # Pull requests only build. On main the image is pushed, tagged with the commit SHA, so
+      # every revision traces back to its commit; the plan below deploys exactly this tag.
+      - name: Build${{ env.DEPLOY == 'true' && ' and push' || '' }}
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.app }}
+          push: ${{ env.DEPLOY == 'true' }}
+          tags: ${{ env.DEPLOY == 'true' && format('{0}/{1}:{2}', env.IMAGE_REPOSITORY, matrix.app, github.sha) || '' }}
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+
+  plan:
+    name: Terraform plan
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: infrastructure
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_VAR_project_id: ${{ vars.GCP_PROJECT_ID }}
+      TF_VAR_region: ${{ vars.GCP_REGION }}
+      TF_VAR_billing_account: ${{ vars.GCP_BILLING_ACCOUNT }}
+      TF_VAR_backend_image: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/lyricfy/backend:${{ github.sha }}
+      TF_VAR_frontend_image: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/lyricfy/frontend:${{ github.sha }}
+    outputs:
+      has_changes: ${{ steps.plan.outputs.has_changes }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.PLAN_SERVICE_ACCOUNT }}
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false # keep plan's real exit code for -detailed-exitcode
+
+      - run: terraform init -input=false -backend-config="bucket=${GCP_PROJECT_ID}-tfstate"
+
+      # Exit code 0 = no changes, 1 = error, 2 = changes to apply
+      - name: Plan
+        id: plan
+        run: |
+          set +e
+          terraform plan -input=false -detailed-exitcode -out=tfplan
+          code=$?
+          set -e
+          if [ "$code" -eq 1 ]; then exit 1; fi
+          echo "has_changes=$([ "$code" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      # What the reviewer approves: shown on the run's summary page
+      - name: Add plan to the run summary
+        run: |
+          {
+            echo "## Terraform plan"
+            echo '```'
+            terraform show -no-color tfplan
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tfplan
+          path: infrastructure/tfplan
+          retention-days: 7
+
+  apply:
+    name: Terraform apply
+    needs: plan
+    if: needs.plan.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    # The environment's required reviewers must approve before this job starts
+    environment:
+      name: production
+      url: ${{ steps.apply.outputs.url }}
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: infrastructure
+    env:
+      TF_IN_AUTOMATION: "true"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.APPLY_SERVICE_ACCOUNT }}
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: tfplan
+          path: infrastructure
+
+      - run: terraform init -input=false -backend-config="bucket=${GCP_PROJECT_ID}-tfstate"
+
+      # Applies exactly the approved plan. Terraform refuses if the state changed since the plan.
+      - name: Apply
+        id: apply
+        run: |
+          terraform apply -input=false tfplan
+          echo "url=$(terraform output -raw frontend_url)" >> "$GITHUB_OUTPUT"

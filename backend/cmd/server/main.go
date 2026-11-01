@@ -20,7 +20,10 @@ import (
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	cfg, err := config.LoadFromEnv()
+	// On Cloud Run the config comes from Parameter Manager; fail rather than hang if it's unreachable
+	loadCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	cfg, err := config.LoadFromEnv(loadCtx)
+	cancel()
 	if err != nil {
 		logger.Error("failed to load config", "error", err)
 		os.Exit(1)
