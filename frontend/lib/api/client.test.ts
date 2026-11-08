@@ -1,9 +1,15 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiFetch, BackendUnavailableError } from "./client";
+import { getIdentityToken, onCloudRun } from "./identity-token";
 import { jsonResponse, mockBackend, TEST_API_URL, TEST_FRONTEND_KEY } from "@/lib/test-utils/backend";
 
 vi.mock("server-only", () => ({}));
+vi.mock("./identity-token", () => ({ onCloudRun: vi.fn(), getIdentityToken: vi.fn() }));
+
+beforeEach(() => {
+	vi.mocked(onCloudRun).mockReturnValue(false);
+});
 
 describe("apiFetch", () => {
 	it("calls the backend with the frontend key, session token and JSON body", async () => {
@@ -33,6 +39,39 @@ describe("apiFetch", () => {
 		expect(init?.method).toBe("GET");
 		expect(init?.body).toBeUndefined();
 		expect(init?.headers).not.toHaveProperty("Authorization");
+	});
+
+	it("on Cloud Run, sends an identity token for the backend alongside the session token", async () => {
+		const fetchMock = mockBackend();
+		fetchMock.mockResolvedValue(jsonResponse(200, { data: {} }));
+		vi.mocked(onCloudRun).mockReturnValue(true);
+		vi.mocked(getIdentityToken).mockResolvedValue("id-token");
+
+		await apiFetch("/api/auth/me", { token: "tok" });
+
+		expect(getIdentityToken).toHaveBeenCalledWith(TEST_API_URL);
+		expect(fetchMock.mock.calls[0][1]?.headers).toMatchObject({
+			"X-Serverless-Authorization": "Bearer id-token",
+			Authorization: "Bearer tok",
+		});
+	});
+
+	it("sends no identity token locally", async () => {
+		const fetchMock = mockBackend();
+		fetchMock.mockResolvedValue(jsonResponse(200, { data: {} }));
+
+		await apiFetch("/api/auth/me");
+
+		expect(getIdentityToken).not.toHaveBeenCalled();
+		expect(fetchMock.mock.calls[0][1]?.headers).not.toHaveProperty("X-Serverless-Authorization");
+	});
+
+	it("throws BackendUnavailableError when no identity token can be had", async () => {
+		mockBackend();
+		vi.mocked(onCloudRun).mockReturnValue(true);
+		vi.mocked(getIdentityToken).mockRejectedValue(new Error("Metadata server returned 404"));
+
+		await expect(apiFetch("/api/auth/me")).rejects.toBeInstanceOf(BackendUnavailableError);
 	});
 
 	it("unwraps the data of a successful response", async () => {
