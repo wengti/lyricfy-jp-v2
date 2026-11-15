@@ -1,23 +1,29 @@
 package middleware
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/labstack/echo/v5"
+
+	authservice "github.com/wengti/lyricfy-jp-v2/backend/internal/service/auth"
 )
 
 const testKey = "frontend-key-that-is-at-least-32-chars"
 
 type fakeVerifier struct{}
 
-func (fakeVerifier) VerifyToken(token string) (string, error) {
-	if token == "valid-token" {
+func (fakeVerifier) VerifyToken(_ context.Context, token string) (string, error) {
+	switch token {
+	case "valid-token":
 		return "me@example.com", nil
+	case "database-down":
+		return "", errors.New("connection refused")
 	}
-	return "", errors.New("bad token")
+	return "", authservice.ErrInvalidToken
 }
 
 // serve runs a request through mw in front of a handler that echoes the stored email.
@@ -70,6 +76,8 @@ func TestRequireSession(t *testing.T) {
 		{"wrong scheme", "Basic valid-token", http.StatusUnauthorized, ""},
 		{"empty token", "Bearer ", http.StatusUnauthorized, ""},
 		{"invalid token", "Bearer nope", http.StatusUnauthorized, ""},
+		// An outage must not look like a dead session, or the frontend would log the user out
+		{"verifier fails", "Bearer database-down", http.StatusInternalServerError, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -79,6 +87,32 @@ func TestRequireSession(t *testing.T) {
 			}
 			if tt.wantBody != "" && rec.Body.String() != tt.wantBody {
 				t.Errorf("body = %q, want %q", rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestBearerToken(t *testing.T) {
+	tests := []struct {
+		name      string
+		auth      string
+		wantToken string
+		wantOK    bool
+	}{
+		{"bearer token", "Bearer abc", "abc", true},
+		{"missing header", "", "", false},
+		{"wrong scheme", "Basic abc", "", false},
+		{"empty token", "Bearer ", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.Header.Set(echo.HeaderAuthorization, tt.auth)
+			c := echo.New().NewContext(req, httptest.NewRecorder())
+
+			token, ok := BearerToken(c)
+			if ok != tt.wantOK || (ok && token != tt.wantToken) {
+				t.Errorf("BearerToken = %q, %v; want %q, %v", token, ok, tt.wantToken, tt.wantOK)
 			}
 		})
 	}

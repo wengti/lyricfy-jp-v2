@@ -47,6 +47,20 @@ func (h *Handler) Login(c *echo.Context) error {
 	return response.OK(c, session)
 }
 
+// Logout handles POST /api/auth/logout: it ends the session in the Authorization header, so
+// the token stops working even before it expires. Ending an expired or unknown session also
+// succeeds, so the frontend can always go on to clear its cookie.
+func (h *Handler) Logout(c *echo.Context) error {
+	token, ok := middleware.BearerToken(c)
+	if !ok {
+		return echo.NewHTTPError(http.StatusUnauthorized, "not logged in")
+	}
+	if err := h.authSvc.Logout(c.Request().Context(), token); err != nil {
+		return err
+	}
+	return response.OK(c, nil)
+}
+
 type meResponse struct {
 	Email string `json:"email"`
 }

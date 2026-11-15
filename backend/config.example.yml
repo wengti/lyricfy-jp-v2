@@ -11,10 +11,12 @@ frontend:
   # Generate with: openssl rand -base64 32
   api_key: "replace-with-at-least-32-random-characters"
 
+database:
+  # The local Postgres from compose.yaml (docker compose up -d). The DATABASE_URL environment
+  # variable overrides this; on Cloud Run it holds the Neon connection string.
+  url: "postgres://lyricfy:lyricfy@localhost:5432/lyricfy?sslmode=disable"
+
 session:
-  # Signs session tokens. Changing it logs everyone out.
-  # Generate with: openssl rand -base64 32
-  secret: "replace-with-at-least-32-random-characters"
   ttl: 720h # how long a login lasts (30 days)
 
 user:

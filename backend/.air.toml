@@ -6,8 +6,8 @@ tmp_dir = "tmp"
 [build]
   cmd = "go build -o ./tmp/server ./cmd/server"
   entrypoint = ["./tmp/server"]
-  # Restart on Go changes and on config.local.yml edits
-  include_ext = ["go", "yml"]
+  # Restart on Go changes, config.local.yml edits and new migrations (embedded in the binary)
+  include_ext = ["go", "yml", "sql"]
   exclude_dir = ["tmp", "vendor", "testdata"]
   exclude_regex = ["_test.go"]
   # Let the server shut down gracefully before it's replaced (not supported on Windows)

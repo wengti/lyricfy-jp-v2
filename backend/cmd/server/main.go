@@ -13,6 +13,7 @@ import (
 	echomw "github.com/labstack/echo/v5/middleware"
 
 	"github.com/wengti/lyricfy-jp-v2/backend/internal/config"
+	"github.com/wengti/lyricfy-jp-v2/backend/internal/database"
 	"github.com/wengti/lyricfy-jp-v2/backend/internal/route"
 	"github.com/wengti/lyricfy-jp-v2/backend/pkg/response"
 )
@@ -29,6 +30,24 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Connect and bring the schema up to date before serving. Neon may be waking from suspend,
+	// so allow it time, but fail rather than hang.
+	dbCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	db, err := database.Open(dbCtx, cfg.Database.URL)
+	if err != nil {
+		cancel()
+		logger.Error("failed to connect to the database", "error", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+	applied, err := database.Migrate(dbCtx, db)
+	cancel()
+	if err != nil {
+		logger.Error("failed to migrate the database", "error", err)
+		os.Exit(1)
+	}
+	logger.Info("database ready", "migrations_applied", applied)
+
 	e := echo.New()
 	e.Logger = logger
 	e.HTTPErrorHandler = response.ErrorHandler(logger)
@@ -36,7 +55,7 @@ func main() {
 	e.Use(echomw.RequestLogger())
 	e.Use(echomw.BodyLimit(1 << 20)) // 1 MiB
 
-	route.Register(e, cfg)
+	route.Register(e, cfg, db)
 
 	// Stop gracefully on Ctrl+C locally, or SIGTERM from Cloud Run
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

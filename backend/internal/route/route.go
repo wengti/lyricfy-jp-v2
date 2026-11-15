@@ -6,6 +6,7 @@
 package route
 
 import (
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v5"
 
 	"github.com/wengti/lyricfy-jp-v2/backend/internal/config"
@@ -21,11 +22,12 @@ type groups struct {
 	protected *echo.Group // frontend key + logged in, mounted at /api
 }
 
-// Register mounts every route under /api.
-func Register(e *echo.Echo, cfg *config.Config) {
+// Register mounts every route under /api. Features build their repositories from db.
+func Register(e *echo.Echo, cfg *config.Config, db *pgxpool.Pool) {
 	// Shared: the session middleware on every protected route needs the auth service
 	users := repository.NewConfigUserRepository(cfg.User.Email, cfg.User.PasswordHash)
-	authSvc := authservice.NewService(users, cfg.Session.Secret, cfg.Session.TTL)
+	sessions := repository.NewPostgresSessionRepository(db)
+	authSvc := authservice.NewService(users, sessions, cfg.Session.TTL)
 
 	api := e.Group("/api", middleware.RequireFrontend(cfg.Frontend.APIKey))
 	g := groups{
@@ -40,6 +42,10 @@ func Register(e *echo.Echo, cfg *config.Config) {
 func registerAuth(g groups, authSvc *authservice.Service) {
 	h := authhandler.NewHandler(authSvc)
 
-	g.public.Group("/auth").POST("/login", h.Login)
+	public := g.public.Group("/auth")
+	public.POST("/login", h.Login)
+	// Public so an expired session can still log out; it only ends the session it's given
+	public.POST("/logout", h.Logout)
+
 	g.protected.Group("/auth").GET("/me", h.Me)
 }

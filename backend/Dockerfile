@@ -3,10 +3,14 @@
 # Build (from backend/):  docker build -t lyricfy-api .
 # Run locally:            docker run --rm -p 8080:8080 \
 #                           -v "$(pwd)/config.local.yml:/config/config.yml:ro" \
-#                           -e CONFIG_PATH=/config/config.yml lyricfy-api
+#                           -e CONFIG_PATH=/config/config.yml \
+#                           --add-host host.docker.internal:host-gateway \
+#                           -e DATABASE_URL="postgres://lyricfy:lyricfy@host.docker.internal:5432/lyricfy?sslmode=disable" \
+#                           lyricfy-api
 #
 # No config or secrets are baked in. On Cloud Run the config comes from Parameter Manager
-# (CONFIG_PARAMETER); locally, from the file at CONFIG_PATH.
+# (CONFIG_PARAMETER) and the database from DATABASE_URL; locally, from the file at CONFIG_PATH,
+# with DATABASE_URL pointing past the container at compose.yaml's database.
 
 # ---- Build ----
 FROM golang:1.26 AS build
