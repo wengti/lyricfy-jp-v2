@@ -9,10 +9,7 @@
 locals {
   backend_config_parameter_id = "backend-config"
   secrets = {
-    frontend_api_key = "frontend-api-key"
-    # Unused since sessions moved to the database, but backend-config may still refer to it,
-    # and rendering fails on a reference it can't read. Remove once backend-config doesn't.
-    session_secret     = "session-secret"
+    frontend_api_key   = "frontend-api-key"
     user_password_hash = "user-password-hash"
   }
 }
