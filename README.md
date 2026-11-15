@@ -100,6 +100,13 @@ CI/CD:            GitHub Actions → Artifact Registry → Cloud Run
 
 ---
 
+## Running locally
+
+See [docs/local-development.md](docs/local-development.md). You need Go 1.26+, Node.js 24 and
+Docker (for the local Postgres); no cloud account is needed.
+
+---
+
 ## Infrastructure
 
 Every cloud resource is defined in Terraform under [`infrastructure/`](infrastructure/). You apply
@@ -107,8 +114,9 @@ Every cloud resource is defined in Terraform under [`infrastructure/`](infrastru
 
 | Path | Applied by | What it manages |
 |---|---|---|
-| `bootstrap/` | you, once (local state, gitignored) | Only what the pipeline needs before its first run: the Terraform state bucket, the pipeline's identities (`ci.tf`), the APIs, the image registry, and the secret containers and config parameter that you fill in by hand |
-| `infrastructure/` (root) | the pipeline (state in the bucket) | The services' identities and **every permission** they get (`identities.tf`), the two modules below, and the budget alert (`budget.tf`) |
+| `bootstrap/` | you, once (local state, gitignored) | Only what the pipeline needs before its first run: the Terraform state bucket, the pipeline's identities (`ci.tf`), the APIs, the image registry, and the secret containers (including the Neon API key) and config parameter that you fill in by hand |
+| `infrastructure/` (root) | the pipeline (state in the bucket) | The services' identities and **every permission** they get (`identities.tf`), the three modules below, and the budget alert (`budget.tf`) |
+| `database/` | (module of the root) | The Neon Postgres project, and its connection string as the `database-url` secret |
 | `backend/` | (module of the root) | The backend's Cloud Run service (private) |
 | `frontend/` | (module of the root) | The frontend's Cloud Run service (public), and its permission to call the backend |
 
@@ -118,9 +126,16 @@ including new resources and the permissions to use them.
 
 **Backend config** lives in Parameter Manager as the `backend-config` parameter: the same YAML as
 `backend/config.local.yml`, edited in the console. Secret values (`frontend.api_key`,
-`session.secret`, `user.password_hash`) aren't stored in it: it refers to Secret Manager secrets
-with `__REF__(...)`, and Parameter Manager fills them in when the backend loads the newest version
-at startup. Locally, the backend still reads `config.local.yml`.
+`user.password_hash`) aren't stored in it: it refers to Secret Manager secrets with
+`__REF__(...)`, and Parameter Manager fills them in when the backend loads the newest version at
+startup. Locally, the backend still reads `config.local.yml`.
+
+**The database** is a Neon Postgres project that Terraform creates (`database/`). Terraform puts
+its connection string in the `database-url` secret, which Cloud Run hands the backend as
+`DATABASE_URL`, so it's never in `backend-config`. The backend creates and updates its tables
+itself at startup, from `backend/internal/database/migrations/`. The pipeline's Terraform signs
+in to Neon with the API key in the `neon-api-key` secret, read at plan and apply time and never
+saved to the state.
 
 ### First-time setup
 
@@ -130,6 +145,9 @@ at startup. Locally, the backend still reads `config.local.yml`.
 - A GCP project with a billing account linked to it. Billing is required even to use the free tier.
 - Billing Account Administrator on that billing account (you have it if you created it): bootstrap
   lets the pipeline manage the budget alert there
+- A [Neon](https://neon.com) account (the Free plan is enough) and an **organization** API key:
+  Neon Console → your organization's **Settings** → **API keys**. It must be an organization
+  key, not a personal one, so Terraform knows which organization to create the project in
 
 Log in. Terraform uses the application-default credentials, and the quota project lets APIs such
 as Cloud Billing accept them:
@@ -160,13 +178,16 @@ brought back with `terraform import` before bootstrap can be changed again.
 
 #### 2. Add the secrets and the backend config
 
-The three secret values (`printf`, not `echo`: a trailing newline would become part of the value):
+The three secret values (`printf`, not `echo`: a trailing newline would become part of the value).
+The Neon key is typed at a hidden prompt, so it stays out of your shell history:
 
 ```bash
 printf '%s' "$(openssl rand -base64 32)" | gcloud secrets versions add frontend-api-key --data-file=-
-printf '%s' "$(openssl rand -base64 32)" | gcloud secrets versions add session-secret --data-file=-
 cd backend && go run ./cmd/hashpassword | tr -d '\n' | gcloud secrets versions add user-password-hash --data-file=- && cd ..
+read -rsp "Neon API key: " key && printf '%s' "$key" | gcloud secrets versions add neon-api-key --data-file=-; unset key
 ```
+
+(`session-secret` is left empty: sessions no longer use it, and it's due to be removed.)
 
 Then the config: in the console, open Secret Manager → **Parameter Manager** → `backend-config` →
 **Versions** → **New version**, and paste
@@ -250,6 +271,9 @@ changed.
 - **Rotate a secret:** add a new version of it in Secret Manager (as in setup step 2), redeploy the
   backend as above (or, for `frontend-api-key`, the frontend too), then destroy the old version:
   `gcloud secrets versions destroy <n> --secret=<name>`. Old versions count toward the free tier.
+- **Change the database schema:** add a numbered migration to
+  `backend/internal/database/migrations/` (never edit one that has been merged), then merge and
+  approve as usual. The new backend applies it when it starts.
 - **Add a resource, or give a service access to one:** add the resource to `infrastructure/` and
   the permission to `infrastructure/identities.tf` (enabling its API with `google_project_service`
   if it's a new kind of Google service), then merge and approve. No local step.
@@ -260,8 +284,9 @@ changed.
   `terraform init -backend-config="bucket=<project-id>-tfstate"`, then `terraform plan`. Leave
   applying to the pipeline.
 - **Tear down:** `terraform destroy` in `infrastructure/` (with the current image tags as
-  variables), then in `bootstrap/`. The state bucket has `prevent_destroy`, so remove that first
-  if you really mean it.
+  variables), then in `bootstrap/`. The Neon project and the state bucket have
+  `prevent_destroy`, so remove that first if you really mean it: destroying the Neon project
+  deletes all the app's data.
 
 ### Staying free
 
@@ -271,7 +296,8 @@ Everything here fits in GCP's free tier for a single user:
 |---|---|
 | Cloud Run | Scales to zero, CPU billed only during requests (`cpu_idle`), at most 1 instance per service |
 | Artifact Registry | Cleanup policy keeps the 2 newest versions of each image (free tier: 0.5 GB) |
-| Secret Manager | 3 secrets, one version each (free tier: 6 active versions, 10,000 accesses a month) |
+| Secret Manager | 5 secrets, at most one version each (free tier: 6 active versions, 10,000 accesses a month). Terraform replaces `database-url`'s version when the connection string changes, deleting the old one |
+| Neon | Free plan. The compute suspends after 5 minutes idle, so the first request after a quiet spell waits for it to wake. The restore window is 6 hours, the Free plan's maximum |
 | Parameter Manager | 1 parameter; delete old versions after edits (free tier: 6 versions, 10,000 reads a month). The backend reads it once per cold start |
 | Cloud Storage | Only Terraform state, in a free-tier region (us-central1/us-east1/us-west1) |
 | GitHub Actions | Free for public repositories; private ones get 2,000 minutes a month. Docker layers are cached between runs |

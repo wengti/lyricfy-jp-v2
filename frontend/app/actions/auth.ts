@@ -48,9 +48,23 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
 	redirect("/dictionary");
 }
 
-// Tokens are stateless, so logging out means forgetting this one. The backend can't revoke
-// it yet; that comes with the database.
+// Ends the session on the backend, so the token stops working even if it was copied, then
+// forgets it here. The cookie goes whatever fails on the way (backend down or erroring, even a
+// misconfigured frontend): logging out on this device must always work, and the session then
+// simply lasts until it expires.
 export async function logout(): Promise<void> {
-	(await cookies()).delete(SESSION_COOKIE);
+	const jar = await cookies();
+	const token = jar.get(SESSION_COOKIE)?.value;
+	if (token) {
+		try {
+			const result = await apiFetch<null>("/api/auth/logout", { method: "POST", token });
+			if (!result.ok) {
+				console.error(`Logout failed on the backend: ${result.status} ${result.error}`);
+			}
+		} catch (err) {
+			console.error("Logout couldn't end the session on the backend", err);
+		}
+	}
+	jar.delete(SESSION_COOKIE);
 	redirect("/");
 }

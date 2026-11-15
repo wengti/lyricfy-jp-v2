@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cookies } from "next/headers";
 import { login, logout } from "./auth";
 import { SESSION_COOKIE } from "@/lib/session/cookie";
@@ -13,7 +13,7 @@ vi.mock("next/navigation", async () => {
 	return { redirect: vi.fn(throwingRedirect) };
 });
 
-const cookieJar = { set: vi.fn(), delete: vi.fn() };
+const cookieJar = { get: vi.fn(), set: vi.fn(), delete: vi.fn() };
 
 function form(fields: Record<string, string>) {
 	const data = new FormData();
@@ -98,9 +98,71 @@ describe("login", () => {
 });
 
 describe("logout", () => {
-	it("deletes the session cookie and returns to the login page", async () => {
+	// Puts back console.error after the tests that silence it
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	function withSessionCookie(token: string) {
+		cookieJar.get.mockImplementation((name: string) => (name === SESSION_COOKIE ? { name, value: token } : undefined));
+	}
+
+	it("ends the session on the backend, then deletes the cookie and returns to the login page", async () => {
+		withSessionCookie("session-token");
+		const fetchMock = mockBackend();
+		fetchMock.mockResolvedValue(jsonResponse(200, { data: null }));
+
 		await expect(logout()).rejects.toThrow("NEXT_REDIRECT:/");
 
+		const [url, init] = fetchMock.mock.calls[0];
+		expect(url).toBe(`${TEST_API_URL}/api/auth/logout`);
+		expect(init?.method).toBe("POST");
+		expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer session-token");
+		expect(cookieJar.delete).toHaveBeenCalledWith(SESSION_COOKIE);
+	});
+
+	it("still logs out on this device when the backend can't be reached", async () => {
+		withSessionCookie("session-token");
+		mockBackend().mockRejectedValue(new TypeError("fetch failed"));
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		await expect(logout()).rejects.toThrow("NEXT_REDIRECT:/");
+
+		expect(cookieJar.delete).toHaveBeenCalledWith(SESSION_COOKIE);
+		expect(consoleError).toHaveBeenCalled();
+	});
+
+	it("still logs out on this device when the frontend is misconfigured", async () => {
+		withSessionCookie("session-token");
+		const fetchMock = mockBackend();
+		vi.stubEnv("API_URL", ""); // apiFetch throws before calling the backend
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		await expect(logout()).rejects.toThrow("NEXT_REDIRECT:/");
+
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(cookieJar.delete).toHaveBeenCalledWith(SESSION_COOKIE);
+		expect(consoleError).toHaveBeenCalled();
+	});
+
+	it("still logs out on this device when the backend returns an error", async () => {
+		withSessionCookie("session-token");
+		mockBackend().mockResolvedValue(jsonResponse(500, { error: "Internal Server Error" }));
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		await expect(logout()).rejects.toThrow("NEXT_REDIRECT:/");
+
+		expect(cookieJar.delete).toHaveBeenCalledWith(SESSION_COOKIE);
+		expect(consoleError).toHaveBeenCalledWith("Logout failed on the backend: 500 Internal Server Error");
+	});
+
+	it("skips the backend when there's no session cookie", async () => {
+		cookieJar.get.mockReturnValue(undefined);
+		const fetchMock = mockBackend();
+
+		await expect(logout()).rejects.toThrow("NEXT_REDIRECT:/");
+
+		expect(fetchMock).not.toHaveBeenCalled();
 		expect(cookieJar.delete).toHaveBeenCalledWith(SESSION_COOKIE);
 	});
 });

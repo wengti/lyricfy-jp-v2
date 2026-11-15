@@ -112,6 +112,15 @@ resource "google_storage_bucket_iam_member" "plan_state" {
   member = google_service_account.plan.member
 }
 
+# Read the Neon API key, so plan can read the database's state from Neon. Plan can already read
+# the Terraform state, which holds the database's connection string, so this exposes nothing
+# new to it.
+resource "google_secret_manager_secret_iam_member" "plan_neon_api_key" {
+  secret_id = google_secret_manager_secret.this["neon_api_key"].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = google_service_account.plan.member
+}
+
 # Read the budget alert (infrastructure/budget.tf)
 resource "google_billing_account_iam_member" "plan_budgets" {
   billing_account_id = var.billing_account
