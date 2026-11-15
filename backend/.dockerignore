@@ -8,6 +8,7 @@ config.parameter.example.yml
 # Air live-reload output and local dev tooling
 tmp/
 .air.toml
+compose.yaml
 
 # Tests aren't needed in the image (CI runs them separately)
 **/*_test.go

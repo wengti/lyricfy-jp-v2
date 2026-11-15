@@ -38,6 +38,18 @@ resource "google_cloud_run_v2_service" "backend" {
         name  = "CONFIG_PARAMETER"
         value = var.config_parameter
       }
+
+      # Overrides database.url in the config. Comes from Terraform (../database) rather than
+      # from backend-config, since Terraform creates the database and its credentials.
+      env {
+        name = "DATABASE_URL"
+        value_source {
+          secret_key_ref {
+            secret  = var.database_url_secret
+            version = var.database_url_secret_version
+          }
+        }
+      }
     }
   }
 

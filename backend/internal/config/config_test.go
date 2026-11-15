@@ -40,8 +40,9 @@ server:
   port: "9000"
 frontend:
   api_key: "` + validKey + `"
+database:
+  url: "postgres://file@localhost/lyricfy"
 session:
-  secret: "` + validKey + `"
   ttl: 24h
 user:
   email: "me@example.com"
@@ -132,6 +133,7 @@ func TestLoadParameter_Validates(t *testing.T) {
 
 func TestLoad_ValidFile(t *testing.T) {
 	t.Setenv("PORT", "")
+	t.Setenv("DATABASE_URL", "")
 	cfg, err := Load(writeConfig(t, validYAML()))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -139,6 +141,9 @@ func TestLoad_ValidFile(t *testing.T) {
 
 	if cfg.Server.Port != "9000" {
 		t.Errorf("port = %q, want 9000", cfg.Server.Port)
+	}
+	if cfg.Database.URL != "postgres://file@localhost/lyricfy" {
+		t.Errorf("database url = %q, want the file's value", cfg.Database.URL)
 	}
 	if cfg.Session.TTL != 24*time.Hour {
 		t.Errorf("ttl = %v, want 24h", cfg.Session.TTL)
@@ -176,6 +181,35 @@ func TestLoad_PortEnvOverridesFile(t *testing.T) {
 	}
 }
 
+func TestLoad_DatabaseURLEnvOverridesFile(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://env@neon.example/lyricfy")
+	cfg, err := Load(writeConfig(t, validYAML()))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Database.URL != "postgres://env@neon.example/lyricfy" {
+		t.Errorf("database url = %q, want the DATABASE_URL value", cfg.Database.URL)
+	}
+}
+
+func TestLoad_DatabaseURLFromEnvAlone(t *testing.T) {
+	// On Cloud Run, backend-config has no database section: the URL comes only from the env
+	t.Setenv("DATABASE_URL", "postgres://env@neon.example/lyricfy")
+	yaml := strings.Replace(validYAML(), `  url: "postgres://file@localhost/lyricfy"`, "", 1)
+	if _, err := Load(writeConfig(t, yaml)); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+}
+
+// Configs written before sessions moved to the database still set session.secret
+func TestLoad_AcceptsDeprecatedSessionSecret(t *testing.T) {
+	t.Setenv("DATABASE_URL", "")
+	yaml := strings.Replace(validYAML(), "  ttl: 24h", "  secret: \"old-signing-secret\"\n  ttl: 24h", 1)
+	if _, err := Load(writeConfig(t, yaml)); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+}
+
 func TestLoad_MissingFile(t *testing.T) {
 	if _, err := Load(filepath.Join(t.TempDir(), "nope.yml")); err == nil {
 		t.Fatal("expected an error for a missing file")
@@ -198,11 +232,12 @@ func TestLoad_Validation(t *testing.T) {
 		wantErr string
 	}{
 		{"short frontend key", `api_key: "` + validKey + `"`, `api_key: "short"`, "frontend.api_key"},
-		{"short session secret", `secret: "` + validKey + `"`, `secret: "short"`, "session.secret"},
+		{"missing database url", `url: "postgres://file@localhost/lyricfy"`, `url: ""`, "database.url"},
 		{"missing email", `email: "me@example.com"`, `email: ""`, "user.email"},
 		{"plaintext password", `password_hash: "` + validHash + `"`, `password_hash: "secret"`, "user.password_hash"},
 		{"negative ttl", "ttl: 24h", "ttl: -1h", "session.ttl"},
 	}
+	t.Setenv("DATABASE_URL", "")
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			yaml := strings.Replace(validYAML(), tt.from, tt.to, 1)

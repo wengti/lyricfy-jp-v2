@@ -71,8 +71,24 @@ jobs:
       - if: matrix.app == 'backend'
         run: go vet ./...
 
+      # For the tests that need a real database (backend/internal/database/testdb). Same image
+      # as backend/compose.yaml. The health check uses TCP: during first-time setup the image
+      # runs a temporary server on its socket only, which a socket check would call ready.
+      - if: matrix.app == 'backend'
+        name: Start Postgres
+        timeout-minutes: 2
+        run: |
+          docker run --detach --name postgres --publish 5432:5432 \
+            --env POSTGRES_USER=lyricfy --env POSTGRES_PASSWORD=lyricfy --env POSTGRES_DB=lyricfy \
+            --health-cmd "pg_isready -h 127.0.0.1 -U lyricfy" --health-interval 1s \
+            postgres:17
+          until [ "$(docker inspect --format '{{.State.Health.Status}}' postgres)" = healthy ]; do sleep 1; done
+
+      # CI is set by GitHub, so database tests fail rather than skip if the URL is missing
       - if: matrix.app == 'backend'
         run: go test -race ./...
+        env:
+          TEST_DATABASE_URL: postgres://lyricfy:lyricfy@localhost:5432/lyricfy?sslmode=disable
 
       # ---- frontend ----
       - if: matrix.app == 'frontend'

@@ -14,12 +14,14 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/wengti/lyricfy-jp-v2/backend/internal/config"
+	"github.com/wengti/lyricfy-jp-v2/backend/internal/database/testdb"
 	"github.com/wengti/lyricfy-jp-v2/backend/internal/middleware"
 	"github.com/wengti/lyricfy-jp-v2/backend/pkg/response"
 )
 
 // These tests cover the wiring: which URLs exist and which middleware guards them.
 // What each handler does with a request is tested in its own handler package.
+// They run against a real Postgres (TEST_DATABASE_URL); see the testdb package.
 
 const (
 	testFrontendKey = "frontend-key-that-is-at-least-32-chars"
@@ -37,13 +39,13 @@ func newTestServer(t *testing.T) *echo.Echo {
 	}
 	cfg := &config.Config{
 		Frontend: config.FrontendConfig{APIKey: testFrontendKey},
-		Session:  config.SessionConfig{Secret: "session-secret-that-is-at-least-32-chars", TTL: time.Hour},
+		Session:  config.SessionConfig{TTL: time.Hour},
 		User:     config.UserConfig{Email: testEmail, PasswordHash: string(hash)},
 	}
 
 	e := echo.New()
 	e.HTTPErrorHandler = response.ErrorHandler(slog.New(slog.NewTextHandler(io.Discard, nil)))
-	Register(e, cfg)
+	Register(e, cfg, testdb.New(t))
 	return e
 }
 
@@ -105,6 +107,11 @@ func TestRoutes_AccessRules(t *testing.T) {
 		{"me with invalid session", http.MethodGet, "/api/auth/me", requestOpts{frontendKey: testFrontendKey, token: "garbage"}, http.StatusUnauthorized},
 		{"me with session but no frontend key", http.MethodGet, "/api/auth/me", requestOpts{token: token}, http.StatusUnauthorized},
 
+		// Logout needs the frontend key, but not a valid session, so an expired one can log out.
+		// (The route that logs out the real token is in TestRoutes_LogoutEndsTheSession.)
+		{"logout with frontend key and invalid session", http.MethodPost, "/api/auth/logout", requestOpts{frontendKey: testFrontendKey, token: "garbage"}, http.StatusOK},
+		{"logout without frontend key", http.MethodPost, "/api/auth/logout", requestOpts{token: "garbage"}, http.StatusUnauthorized},
+
 		// Unknown API paths don't reveal whether they exist to logged-out callers
 		{"unknown path without session", http.MethodGet, "/api/nope", requestOpts{frontendKey: testFrontendKey}, http.StatusUnauthorized},
 	}
@@ -129,5 +136,27 @@ func TestRoutes_LoginThenMe(t *testing.T) {
 	}
 	if email := body["data"].(map[string]any)["email"]; email != testEmail {
 		t.Errorf("email = %v, want %q", email, testEmail)
+	}
+}
+
+func TestRoutes_LogoutEndsTheSession(t *testing.T) {
+	e := newTestServer(t)
+	token := loginToken(t, e)
+	other := loginToken(t, e)
+
+	status, body := do(t, e, http.MethodPost, "/api/auth/logout", requestOpts{frontendKey: testFrontendKey, token: token})
+	if status != http.StatusOK {
+		t.Fatalf("logout: status = %d, body = %v", status, body)
+	}
+
+	// The token is rejected at once, long before its hour is up
+	status, _ = do(t, e, http.MethodGet, "/api/auth/me", requestOpts{frontendKey: testFrontendKey, token: token})
+	if status != http.StatusUnauthorized {
+		t.Errorf("me after logout: status = %d, want 401", status)
+	}
+	// Another session (another device) is unaffected
+	status, _ = do(t, e, http.MethodGet, "/api/auth/me", requestOpts{frontendKey: testFrontendKey, token: other})
+	if status != http.StatusOK {
+		t.Errorf("me with another session: status = %d, want 200", status)
 	}
 }

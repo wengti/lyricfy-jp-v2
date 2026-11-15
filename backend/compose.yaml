@@ -1,0 +1,18 @@
+# Local Postgres for development and tests (production uses Neon). From backend/:
+#   docker compose up -d     start it (data survives restarts in the postgres-data volume)
+#   docker compose down      stop it; add -v to also delete the data
+# Same major version as the Neon project (infrastructure/database/main.tf).
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: lyricfy
+      POSTGRES_PASSWORD: lyricfy
+      POSTGRES_DB: lyricfy
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+volumes:
+  postgres-data:

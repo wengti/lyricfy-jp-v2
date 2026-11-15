@@ -1,20 +1,29 @@
-// Package auth holds the authentication business logic: checking credentials
-// and issuing and verifying session tokens.
+// Package auth holds the authentication business logic: checking credentials and starting,
+// verifying and ending sessions.
+//
+// A session token is 32 random bytes, base64url-encoded, that the browser keeps in a cookie.
+// The database stores only its SHA-256 hash with an expiry, so logging out deletes the row and
+// the token stops working at once. See docs/session-tokens.md.
 package auth
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/wengti/lyricfy-jp-v2/backend/internal/model"
 	"github.com/wengti/lyricfy-jp-v2/backend/internal/repository"
 )
 
-const tokenIssuer = "lyricfy-api"
+// tokenBytes of randomness make a token impossible to guess (256 bits), which is also why a
+// fast hash is safe to store it under, unlike a password
+const tokenBytes = 32
 
 var (
 	ErrInvalidCredentials = errors.New("invalid email or password")
@@ -31,17 +40,18 @@ type Session struct {
 }
 
 type Service struct {
-	users  repository.UserRepository
-	secret []byte
-	ttl    time.Duration
-	now    func() time.Time // replaceable in tests
+	users    repository.UserRepository
+	sessions repository.SessionRepository
+	ttl      time.Duration
+	now      func() time.Time // replaceable in tests
 }
 
-func NewService(users repository.UserRepository, secret string, ttl time.Duration) *Service {
-	return &Service{users: users, secret: []byte(secret), ttl: ttl, now: time.Now}
+func NewService(users repository.UserRepository, sessions repository.SessionRepository, ttl time.Duration) *Service {
+	return &Service{users: users, sessions: sessions, ttl: ttl, now: time.Now}
 }
 
-// Login checks the credentials and returns a signed session token.
+// Login checks the credentials and starts a session that lasts the configured TTL. It also
+// deletes expired sessions: they're already rejected, so this only keeps the table small.
 func (s *Service) Login(ctx context.Context, email, password string) (*Session, error) {
 	user, err := s.users.FindByEmail(ctx, email)
 	if errors.Is(err, repository.ErrUserNotFound) {
@@ -56,33 +66,70 @@ func (s *Service) Login(ctx context.Context, email, password string) (*Session, 
 		return nil, ErrInvalidCredentials
 	}
 
-	now := s.now()
-	expiresAt := now.Add(s.ttl)
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
-		Issuer:    tokenIssuer,
-		Subject:   user.Email,
-		IssuedAt:  jwt.NewNumericDate(now),
-		ExpiresAt: jwt.NewNumericDate(expiresAt),
-	})
-	signed, err := token.SignedString(s.secret)
-	if err != nil {
-		return nil, fmt.Errorf("sign token: %w", err)
+	// Whole seconds: Postgres keeps microseconds, so the expiry sent back matches the stored one
+	now := s.now().UTC().Truncate(time.Second)
+	if _, err := s.sessions.DeleteExpired(ctx, now); err != nil {
+		return nil, fmt.Errorf("delete expired sessions: %w", err)
 	}
-	return &Session{Token: signed, ExpiresAt: expiresAt}, nil
+
+	token := newToken()
+	expiresAt := now.Add(s.ttl)
+	err = s.sessions.Create(ctx, model.Session{
+		TokenHash: hashToken(token),
+		UserEmail: user.Email,
+		CreatedAt: now,
+		ExpiresAt: expiresAt,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create session: %w", err)
+	}
+	return &Session{Token: token, ExpiresAt: expiresAt}, nil
 }
 
-// VerifyToken checks a session token's signature and expiry and returns the user's email.
-func (s *Service) VerifyToken(tokenString string) (string, error) {
-	claims := &jwt.RegisteredClaims{}
-	_, err := jwt.ParseWithClaims(tokenString, claims,
-		func(*jwt.Token) (any, error) { return s.secret, nil },
-		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), // rejects "none" and other algorithms
-		jwt.WithIssuer(tokenIssuer),
-		jwt.WithExpirationRequired(),
-		jwt.WithTimeFunc(s.now),
-	)
-	if err != nil || claims.Subject == "" {
+// VerifyToken returns the email of the user a session token belongs to. It returns
+// ErrInvalidToken if the token is malformed, unknown, expired or logged out, and any other
+// error if the check itself failed (e.g. the database is unreachable).
+func (s *Service) VerifyToken(ctx context.Context, token string) (string, error) {
+	if !wellFormed(token) {
+		return "", ErrInvalidToken // can't be one of ours; skip the database
+	}
+	session, err := s.sessions.FindValid(ctx, hashToken(token), s.now())
+	if errors.Is(err, repository.ErrSessionNotFound) {
 		return "", ErrInvalidToken
 	}
-	return claims.Subject, nil
+	if err != nil {
+		return "", fmt.Errorf("find session: %w", err)
+	}
+	return session.UserEmail, nil
+}
+
+// Logout ends a session, so its token stops working even before it expires. Ending a session
+// that is unknown, expired or already ended is not an error.
+func (s *Service) Logout(ctx context.Context, token string) error {
+	if !wellFormed(token) {
+		return nil
+	}
+	if err := s.sessions.Delete(ctx, hashToken(token)); err != nil {
+		return fmt.Errorf("delete session: %w", err)
+	}
+	return nil
+}
+
+// newToken returns a new random session token.
+func newToken() string {
+	b := make([]byte, tokenBytes)
+	rand.Read(b) // never returns an error; crashes the program if randomness is unavailable
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// wellFormed reports whether token has the shape newToken produces.
+func wellFormed(token string) bool {
+	b, err := base64.RawURLEncoding.DecodeString(token)
+	return err == nil && len(b) == tokenBytes
+}
+
+// hashToken returns what the database stores for a token.
+func hashToken(token string) []byte {
+	h := sha256.Sum256([]byte(token))
+	return h[:]
 }

@@ -36,6 +36,26 @@ resource "google_secret_manager_secret_iam_member" "backend_config" {
   member    = data.google_parameter_manager_parameter.backend_config.policy_member[0].iam_policy_uid_principal
 }
 
+# Read the database connection string (env var DATABASE_URL)
+resource "google_secret_manager_secret_iam_member" "backend_database_url" {
+  secret_id = module.database.url_secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = google_service_account.backend.member
+}
+
+# ---------------------------------------------------------------------------
+# Pipeline
+# ---------------------------------------------------------------------------
+
+# Plan reads the connection string secret's value to check it for changes. The pipeline's own
+# identities live in bootstrap/ci.tf, but this secret is created here. Plan can already read
+# the Terraform state, which holds the same connection string, so this exposes nothing new.
+resource "google_secret_manager_secret_iam_member" "plan_database_url" {
+  secret_id = module.database.url_secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:github-plan@${var.project_id}.iam.gserviceaccount.com"
+}
+
 # ---------------------------------------------------------------------------
 # Frontend
 # ---------------------------------------------------------------------------
@@ -58,6 +78,7 @@ resource "time_sleep" "iam_propagation" {
   triggers = {
     backend_config   = google_project_iam_member.backend_config.id
     config_secrets   = join(",", [for m in google_secret_manager_secret_iam_member.backend_config : m.id])
+    database_url     = google_secret_manager_secret_iam_member.backend_database_url.id
     frontend_api_key = google_secret_manager_secret_iam_member.frontend_api_key.id
     backend_account  = google_service_account.backend.email
     frontend_account = google_service_account.frontend.email

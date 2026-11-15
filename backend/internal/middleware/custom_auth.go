@@ -2,11 +2,15 @@
 package middleware
 
 import (
+	"context"
 	"crypto/subtle"
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	authservice "github.com/wengti/lyricfy-jp-v2/backend/internal/service/auth"
 )
 
 const (
@@ -16,9 +20,10 @@ const (
 	userEmailKey = "userEmail"
 )
 
-// TokenVerifier checks a session token and returns the user's email.
+// TokenVerifier checks a session token and returns the user's email. It returns
+// authservice.ErrInvalidToken for a token that isn't (or is no longer) a valid session.
 type TokenVerifier interface {
-	VerifyToken(token string) (string, error)
+	VerifyToken(ctx context.Context, token string) (string, error)
 }
 
 // RequireFrontend rejects requests that don't carry the frontend's shared key.
@@ -41,18 +46,30 @@ func RequireFrontend(apiKey string) echo.MiddlewareFunc {
 func RequireSession(verifier TokenVerifier) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
-			token, ok := strings.CutPrefix(c.Request().Header.Get(echo.HeaderAuthorization), "Bearer ")
-			if !ok || token == "" {
+			token, ok := BearerToken(c)
+			if !ok {
 				return echo.NewHTTPError(http.StatusUnauthorized, "not logged in")
 			}
-			email, err := verifier.VerifyToken(token)
-			if err != nil {
+			email, err := verifier.VerifyToken(c.Request().Context(), token)
+			if errors.Is(err, authservice.ErrInvalidToken) {
 				return echo.NewHTTPError(http.StatusUnauthorized, "invalid or expired session")
+			}
+			// Anything else (e.g. the database is down) is a 500, not a 401: the frontend treats
+			// a 401 as a dead session and deletes the cookie, so an outage would log you out
+			if err != nil {
+				return err
 			}
 			c.Set(userEmailKey, email)
 			return next(c)
 		}
 	}
+}
+
+// BearerToken returns the token from an "Authorization: Bearer <token>" header, and false if
+// there isn't one.
+func BearerToken(c *echo.Context) (string, bool) {
+	token, ok := strings.CutPrefix(c.Request().Header.Get(echo.HeaderAuthorization), "Bearer ")
+	return token, ok && token != ""
 }
 
 // UserEmail returns the email RequireSession stored on the context.
