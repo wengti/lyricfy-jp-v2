@@ -187,8 +187,6 @@ cd backend && go run ./cmd/hashpassword | tr -d '\n' | gcloud secrets versions a
 read -rsp "Neon API key: " key && printf '%s' "$key" | gcloud secrets versions add neon-api-key --data-file=-; unset key
 ```
 
-(`session-secret` is left empty: sessions no longer use it, and it's due to be removed.)
-
 Then the config: in the console, open Secret Manager → **Parameter Manager** → `backend-config` →
 **Versions** → **New version**, and paste
 [`backend/config.parameter.example.yml`](backend/config.parameter.example.yml) with `PROJECT_ID`
@@ -296,7 +294,7 @@ Everything here fits in GCP's free tier for a single user:
 |---|---|
 | Cloud Run | Scales to zero, CPU billed only during requests (`cpu_idle`), at most 1 instance per service |
 | Artifact Registry | Cleanup policy keeps the 2 newest versions of each image (free tier: 0.5 GB) |
-| Secret Manager | 5 secrets, at most one version each (free tier: 6 active versions, 10,000 accesses a month). Terraform replaces `database-url`'s version when the connection string changes, deleting the old one |
+| Secret Manager | 4 secrets, one version each (free tier: 6 active versions, 10,000 accesses a month). Terraform replaces `database-url`'s version when the connection string changes, deleting the old one |
 | Neon | Free plan. The compute suspends after 5 minutes idle, so the first request after a quiet spell waits for it to wake. The restore window is 6 hours, the Free plan's maximum |
 | Parameter Manager | 1 parameter; delete old versions after edits (free tier: 6 versions, 10,000 reads a month). The backend reads it once per cold start |
 | Cloud Storage | Only Terraform state, in a free-tier region (us-central1/us-east1/us-west1) |

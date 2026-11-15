@@ -25,9 +25,6 @@ openssl rand -base64 32        # paste into frontend.api_key
 go run ./cmd/hashpassword      # type your password, paste the output into user.password_hash
 ```
 
-An older `config.local.yml` still loads, but add the `database` section from the example; its
-`session.secret` is no longer used and can be deleted.
-
 The backend creates and updates its tables itself when it starts, from the numbered files in
 `backend/internal/database/migrations/`. To change the schema, add a new file there; never edit
 one that has been merged.

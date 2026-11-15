@@ -201,15 +201,6 @@ func TestLoad_DatabaseURLFromEnvAlone(t *testing.T) {
 	}
 }
 
-// Configs written before sessions moved to the database still set session.secret
-func TestLoad_AcceptsDeprecatedSessionSecret(t *testing.T) {
-	t.Setenv("DATABASE_URL", "")
-	yaml := strings.Replace(validYAML(), "  ttl: 24h", "  secret: \"old-signing-secret\"\n  ttl: 24h", 1)
-	if _, err := Load(writeConfig(t, yaml)); err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-}
-
 func TestLoad_MissingFile(t *testing.T) {
 	if _, err := Load(filepath.Join(t.TempDir(), "nope.yml")); err == nil {
 		t.Fatal("expected an error for a missing file")

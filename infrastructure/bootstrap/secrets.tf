@@ -8,9 +8,6 @@ locals {
     # frontend.api_key in the backend config, and the frontend's FRONTEND_API_KEY: one secret,
     # so the two can't drift apart
     frontend_api_key = "frontend-api-key"
-    # session.secret in the backend config. No longer used (sessions are stored in the
-    # database): remove it once backend-config no longer refers to it
-    session_secret = "session-secret"
     # user.password_hash in the backend config. A bcrypt hash, but kept secret anyway: a leaked
     # hash can be brute-forced offline.
     user_password_hash = "user-password-hash"

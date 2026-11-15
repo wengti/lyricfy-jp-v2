@@ -48,11 +48,6 @@ type DatabaseConfig struct {
 // SessionConfig controls the sessions started on login.
 type SessionConfig struct {
 	TTL time.Duration `yaml:"ttl"`
-
-	// Deprecated: sessions are stored in the database and no longer signed, so this is
-	// ignored. It's still accepted so configs that set it keep loading; once it's gone from
-	// every config (including backend-config), delete this field.
-	Secret string `yaml:"secret"`
 }
 
 // UserConfig is the single user allowed to log in.
