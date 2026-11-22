@@ -112,6 +112,11 @@ func TestRoutes_AccessRules(t *testing.T) {
 		{"logout with frontend key and invalid session", http.MethodPost, "/api/auth/logout", requestOpts{frontendKey: testFrontendKey, token: "garbage"}, http.StatusOK},
 		{"logout without frontend key", http.MethodPost, "/api/auth/logout", requestOpts{token: "garbage"}, http.StatusUnauthorized},
 
+		// The dictionary needs the frontend key and a session
+		{"dictionary with key and session", http.MethodGet, "/api/dictionary", requestOpts{frontendKey: testFrontendKey, token: token}, http.StatusOK},
+		{"dictionary without session", http.MethodGet, "/api/dictionary", requestOpts{frontendKey: testFrontendKey}, http.StatusUnauthorized},
+		{"dictionary with session but no frontend key", http.MethodGet, "/api/dictionary", requestOpts{token: token}, http.StatusUnauthorized},
+
 		// Unknown API paths don't reveal whether they exist to logged-out callers
 		{"unknown path without session", http.MethodGet, "/api/nope", requestOpts{frontendKey: testFrontendKey}, http.StatusUnauthorized},
 	}

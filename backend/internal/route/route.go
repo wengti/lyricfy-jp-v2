@@ -11,9 +11,11 @@ import (
 
 	"github.com/wengti/lyricfy-jp-v2/backend/internal/config"
 	authhandler "github.com/wengti/lyricfy-jp-v2/backend/internal/handler/auth"
+	dicthandler "github.com/wengti/lyricfy-jp-v2/backend/internal/handler/dictionary"
 	"github.com/wengti/lyricfy-jp-v2/backend/internal/middleware"
 	"github.com/wengti/lyricfy-jp-v2/backend/internal/repository"
 	authservice "github.com/wengti/lyricfy-jp-v2/backend/internal/service/auth"
+	dictservice "github.com/wengti/lyricfy-jp-v2/backend/internal/service/dictionary"
 )
 
 // groups are the two access levels every feature can mount routes on.
@@ -36,6 +38,15 @@ func Register(e *echo.Echo, cfg *config.Config, db *pgxpool.Pool) {
 	}
 
 	registerAuth(g, authSvc)
+	registerDictionary(g, db)
+}
+
+// registerDictionary mounts /api/dictionary, for the logged-in user only.
+func registerDictionary(g groups, db *pgxpool.Pool) {
+	svc := dictservice.NewService(repository.NewPostgresDictionaryRepository(db))
+	h := dicthandler.NewHandler(svc)
+
+	g.protected.GET("/dictionary", h.List)
 }
 
 // registerAuth mounts /api/auth/*. The auth service is passed in because it's shared.
